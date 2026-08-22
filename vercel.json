@@ -1,0 +1,8 @@
+{
+  "functions": {
+    "api/informe-pdf.js": {
+      "memory": 2048,
+      "maxDuration": 60
+    }
+  }
+}
