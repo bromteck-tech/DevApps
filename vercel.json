@@ -1,6 +1,6 @@
 {
   "functions": {
-    "api/informe-pdf.js": {
+    "api/informe-pdf.mjs": {
       "memory": 2048,
       "maxDuration": 60
     }

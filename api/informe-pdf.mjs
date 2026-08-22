@@ -5,17 +5,24 @@
 // manda aca, y adjunta el PDF que vuelve. El diseno vive en lib/informe/
 // plantilla.js — este archivo solo es el transporte.
 //
-//   POST /api/informe-pdf          -> application/pdf
+//   POST /api/informe-pdf              -> application/pdf
 //   POST /api/informe-pdf?formato=html -> el HTML, para diagnosticar sin abrir un PDF
 //
 // Auth: header  x-informe-token: <INFORME_TOKEN>
-"use strict";
-const crypto = require("crypto");
-const chromium = require("@sparticuz/chromium");
-const puppeteer = require("puppeteer-core");
+//
+// Es .mjs y no .js a proposito: @sparticuz/chromium y puppeteer-core son ESM
+// puro ("type":"module", sin build CommonJS), asi que un require() clasico los
+// rompe al cargar el modulo — la funcion devuelve 500 incluso en un GET, antes
+// de ejecutar una linea propia. El resto del repo sigue siendo CommonJS.
+import crypto from "node:crypto";
+import chromium from "@sparticuz/chromium";
+import puppeteer from "puppeteer-core";
 
-const { html, nombreArchivo } = require("../lib/informe/plantilla");
-const { validar } = require("../lib/informe/validar");
+import plantilla from "../lib/informe/plantilla.js";
+import validador from "../lib/informe/validar.js";
+
+const { html, nombreArchivo } = plantilla;
+const { validar } = validador;
 
 // Comparacion de tiempo constante: sin esto el largo de la respuesta filtra
 // informacion del token. Va sobre hashes para que timingSafeEqual no tire por
@@ -27,10 +34,13 @@ function tokenValido(recibido, esperado) {
 }
 
 async function renderizarPdf(contenido) {
+  // La pagina es estatica: sin WebGL el navegador arranca mas liviano.
+  chromium.setGraphicsMode = false;
+
   const navegador = await puppeteer.launch({
     args: chromium.args,
     executablePath: await chromium.executablePath(),
-    headless: true,
+    headless: chromium.headless,
   });
   try {
     const pagina = await navegador.newPage();
@@ -50,7 +60,7 @@ async function renderizarPdf(contenido) {
   }
 }
 
-module.exports = async (req, res) => {
+export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "method_not_allowed" });
@@ -82,17 +92,19 @@ module.exports = async (req, res) => {
     pdf = await renderizarPdf(contenido);
   } catch (err) {
     console.error("INFORME_PDF_FALLO", JSON.stringify({
-      sitio: req.body.sitio, mes: req.body.mes, error: err && err.message ? err.message : String(err),
+      sitio: req.body.sitio, mes: req.body.mes,
+      error: err && err.message ? err.message : String(err),
     }));
     return res.status(502).json({ error: "fallo_el_render", detalle: err && err.message });
   }
 
   console.log("INFORME_PDF_OK", JSON.stringify({
-    sitio: req.body.sitio, mes: req.body.mes, kb: Math.round(pdf.length / 1024), ms: Date.now() - t0,
+    sitio: req.body.sitio, mes: req.body.mes,
+    kb: Math.round(pdf.length / 1024), ms: Date.now() - t0,
   }));
 
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Length", pdf.length);
   res.setHeader("Content-Disposition", `attachment; filename="${nombreArchivo(req.body)}"`);
-  return res.end(pdf);
-};
+  return res.end(Buffer.from(pdf));
+}
