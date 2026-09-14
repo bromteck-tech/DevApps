@@ -4,6 +4,17 @@
  * puente HTTP que ya usa el resto de la app (cv.get_result_post con
  * requestMode=function&f=pushTelemetryRecords).
  *
+ * FIX (2026-09-03): el backend devolvía fatal_error/"Unhandeld error" al
+ * reportar cambios de canal en vivo. Causa: se mandaba actionId 5/6
+ * (SWITCHED_TO/AWAY_FROM_SERVICE) con datos de STREAM (serviceId/serviceName
+ * apuntando al streamId real). Según TelemetryRecords.java (SDK Android,
+ * referencia autoritativa) 5/6 son específicamente para sintonía de servicio
+ * Multicast/DVB (tuner real, netId/tsId) -- esta app sirve TODO el contenido
+ * en vivo por HLS/OTT vía CDN (ver cv.getAvailableStreams), nunca DVB real,
+ * así que el par correcto es 7/8 (SWITCHED_TO/AWAY_FROM_STREAM) con
+ * streamId/streamName. Corregido acá (antes: ACTION.SWITCHED_TO_SERVICE/
+ * SWITCHED_AWAY_FROM_SERVICE + campos serviceId/serviceName).
+ *
  * Es la contraparte, en este proyecto Tizen/webOS (sin Activity/Handler/
  * File real), del módulo TelemetryRecords.java del SDK Android de
  * panaccess. Mismas constantes de acción/razón y mismos límites (100
@@ -74,8 +85,9 @@ var Telemetry = (function () {
   // CONSTANTES (mismos valores que TelemetryRecords.java)
   // ============================================
   var ACTION = {
-    SWITCHED_TO_SERVICE: 5,
-    SWITCHED_AWAY_FROM_SERVICE: 6,
+    // 7/8, no 5/6: ver nota "FIX (2026-09-03)" en la cabecera del archivo.
+    SWITCHED_TO_STREAM: 7,
+    SWITCHED_AWAY_FROM_STREAM: 8,
     VOD_STARTED: 13,
     VOD_STOPPED_PREMATURELY: 14,
     VOD_FINISHED: 15,
@@ -91,7 +103,7 @@ var Telemetry = (function () {
   };
 
   var MIN_TIME = {
-    service: 60 * 1000,  // 1 minuto, igual que SWITCHED_TO_SERVICE_MIN_TIME
+    service: 60 * 1000,  // 1 minuto, igual que SWITCHED_TO_STREAM_MIN_TIME
     vod: 60 * 1000,          // 1 minuto, igual que VOD_STARTED_MIN_TIME
     catchup: 60 * 1000       // 1 minuto, igual que CATCHUP_STARTED_MIN_TIME
   };
@@ -261,7 +273,20 @@ var Telemetry = (function () {
     // igual que el resto de las operaciones contra el backend
     // (getBouquets, getCatchupGroups, recordOrDeleteCatchup, etc.) -- ver
     // cv.pushTelemetryRecords. Este módulo solo decide QUÉ y CUÁNDO enviar.
-    cv.pushTelemetryRecords(batch, null, function (result) {
+    //
+    // FIX (2026-09-03): antes se mandaba `null` acá -- el backend
+    // (cv.cablesatelite.com) devolvía fatal_error/"Unhandeld error" en TODOS
+    // los intentos, con o sin los campos actionId 7/8 corregidos. Comparado
+    // contra un proyecto hermano (appVideo, mismo backend Panaccess) que sí
+    // funciona: la única diferencia real era que ese proyecto manda
+    // `smartcardId` (ahí sacado de `userSession.getActiveLicense().licenseKey`)
+    // y este nunca lo mandaba. El WSDL (cvPushTelemetryRecords) documenta
+    // `smartcardId` como "(optional)", pero el backend de este cliente en la
+    // práctica lo exige igual -- doc desactualizada respecto al comportamiento
+    // real del servidor. `User.getLicense()` es el equivalente acá a
+    // `getActiveLicense().licenseKey` de appVideo (ver `home.js` "AboutCard",
+    // que muestra este mismo valor como la smartcard activa del usuario).
+    cv.pushTelemetryRecords(batch, User.getLicense(), function (result) {
       sending = false;
       log("Telemetría enviada correctamente");
       pending = pending.slice(batch.length);
@@ -401,7 +426,7 @@ var Telemetry = (function () {
     if (!current) return;
 
     if (current.kind === "service") {
-      endCurrent({ endAction: ACTION.SWITCHED_AWAY_FROM_SERVICE, endReason: REASON.USER_INTERACTION });
+      endCurrent({ endAction: ACTION.SWITCHED_AWAY_FROM_STREAM, endReason: REASON.USER_INTERACTION });
     } else if (current.kind === "vod") {
       endCurrent({
         endAction: opts.finished ? ACTION.VOD_FINISHED : ACTION.VOD_STOPPED_PREMATURELY,
@@ -427,9 +452,13 @@ var Telemetry = (function () {
   Telemetry.recordSwitchedToService = function (service) {
     if (!initialized || !service) return;
     Telemetry.stopCurrent(); // cierra lo anterior (prematuro, por definición: se está cambiando de canal)
-    beginCurrent("service", ACTION.SWITCHED_TO_SERVICE, {
-      serviceId: service.id,
-      serviceName: service.name
+    // streamId/streamName (no serviceId/serviceName): ver nota "FIX
+    // (2026-09-03)" en la cabecera -- el nombre público del método queda
+    // igual (recordSwitchedToService, ya usado desde home.js) aunque
+    // internamente reporte como STREAM.
+    beginCurrent("service", ACTION.SWITCHED_TO_STREAM, {
+      streamId: service.id,
+      streamName: service.name
     });
   };
 
@@ -514,7 +543,7 @@ var Telemetry = (function () {
    * fatal_error/unknown_error_serverside, probando variantes a mano:
    *
    *   Telemetry.debugPush([])                        // array vacío
-   *   Telemetry.debugPush([{ actionId: 5, reasonId: 1 }])  // registro mínimo
+   *   Telemetry.debugPush([{ actionId: 7, reasonId: 1 }])  // registro mínimo
    *   Telemetry.debugPush(Telemetry.debugSampleRecord()) // registro "normal" completo
    *
    * cv.js ya loguea el payload exacto (REQUEST pushTelemetryRecords...)
@@ -535,7 +564,7 @@ var Telemetry = (function () {
   // Registro "normal" de ejemplo (mismo shape que arma buildRecord), para no
   // tener que escribirlo a mano en la consola cada vez.
   Telemetry.debugSampleRecord = function () {
-    return [buildRecord(ACTION.SWITCHED_TO_SERVICE, REASON.USER_INTERACTION, { test: true })];
+    return [buildRecord(ACTION.SWITCHED_TO_STREAM, REASON.USER_INTERACTION, { test: true })];
   };
 
   return Telemetry;

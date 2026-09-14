@@ -43,6 +43,7 @@ var Search = (function (Events) {
     $tabsContainer: null,
     $resultsContainer: null,
     $count: null,
+    $recentRow: null,
 
     initialized: false,
 
@@ -59,6 +60,7 @@ var Search = (function (Events) {
       this.$tabsContainer = $("#searchTabs");
       this.$resultsContainer = $("#searchResults");
       this.$count = $("#searchResultsCount");
+      this.$recentRow = $("#searchRecent");
 
       SearchManager.init({
         onError: function (error) {
@@ -398,6 +400,8 @@ var Search = (function (Events) {
       var query = this.lastQuery;
       var isEmptyQuery = this.lastIsEmptyQuery;
 
+      this._renderRecentRow(isEmptyQuery);
+
       this.$count.text("");
       this.$resultsContainer.empty();
 
@@ -456,7 +460,6 @@ var Search = (function (Events) {
     },
 
     _renderEmptyState: function (isEmptyQuery) {
-      var self = this;
       var fragment = document.createDocumentFragment();
 
       var message = isEmptyQuery
@@ -468,37 +471,56 @@ var Search = (function (Events) {
       p.innerText = message;
       fragment.appendChild(p);
 
-      // Búsquedas recientes: sólo tiene sentido mostrarlas en el estado
-      // inicial (sin query todavía), como en cualquier buscador de un app
-      // de streaming -- antes esto no existía.
-      if (isEmptyQuery) {
-        var recent = SearchManager.getRecentSearches();
-        if (recent && recent.length > 0) {
-          var title = document.createElement("div");
-          title.className = "search-recent-title";
-          title.innerText = __("SearchRecent") || "Búsquedas recientes";
-          fragment.appendChild(title);
+      this.$resultsContainer[0].appendChild(fragment);
+    },
 
-          var wrap = document.createElement("div");
-          wrap.className = "search-recent";
-          recent.forEach(function (q) {
-            var chip = document.createElement("div");
-            chip.className = "search-recent-chip focusable";
-            chip.setAttribute("data-query", q);
-            chip.innerText = q;
-            wrap.appendChild(chip);
-          });
+    /**
+     * Fila compacta de "búsquedas recientes", pegada al buscador (arriba de
+     * los tabs), no dentro del panel de resultados. Antes vivía como un
+     * bloque grande y centrado ahí adentro, con un botón rojo "Borrar
+     * historial" -- se sentía invasivo para algo tan secundario. Ahora es
+     * una sola línea con chips discretos y "Borrar" como texto, visible
+     * sólo cuando no hay query en curso y hay algo en el historial.
+     */
+    _renderRecentRow: function (isEmptyQuery) {
+      if (!this.$recentRow || this.$recentRow.length === 0) return;
 
-          var clear = document.createElement("div");
-          clear.className = "search-recent-clear focusable";
-          clear.innerText = __("SearchClearHistory") || "Borrar historial";
-          wrap.appendChild(clear);
-
-          fragment.appendChild(wrap);
-        }
+      var recent = isEmptyQuery ? SearchManager.getRecentSearches() : [];
+      if (!recent || recent.length === 0) {
+        this.$recentRow.addClass("hidden").empty();
+        return;
       }
 
-      this.$resultsContainer[0].appendChild(fragment);
+      var fragment = document.createDocumentFragment();
+
+      var label = document.createElement("span");
+      label.className = "search-recent-label";
+      label.innerText = __("SearchRecent") || "Recientes";
+      fragment.appendChild(label);
+
+      recent.forEach(function (q) {
+        var chip = document.createElement("span");
+        chip.className = "search-recent-chip focusable";
+        chip.setAttribute("data-query", q);
+        chip.innerText = q;
+        fragment.appendChild(chip);
+      });
+
+      // Spacer en vez de "margin-left: auto" en el link "Borrar": la clase
+      // .focus global (ver style.css) fuerza "margin: 2px" sobre CUALQUIER
+      // elemento enfocado, lo que pisaba el margin-left:auto y hacía que
+      // "Borrar" saltara de posición justo al enfocarlo.
+      var spacer = document.createElement("span");
+      spacer.className = "search-recent-spacer";
+      fragment.appendChild(spacer);
+
+      var clear = document.createElement("span");
+      clear.className = "search-recent-clear focusable";
+      clear.innerText = __("SearchClearHistory") || "Borrar";
+      fragment.appendChild(clear);
+
+      this.$recentRow.empty()[0].appendChild(fragment);
+      this.$recentRow.removeClass("hidden");
     },
 
     /**
@@ -667,40 +689,20 @@ var Search = (function (Events) {
     // NAVEGACIÓN CON EL CONTROL REMOTO
     // ============================================
 
-    /**
-     * Calcula cuántas cards entran por fila midiendo posiciones reales en
-     * el DOM, en vez de asumir un número fijo. Esto desacopla la
-     * navegación de la cantidad de columnas que defina el CSS (antes el
-     * grid estaba fijo a 6 columnas en CSS Y hardcodeado a 6 en este
-     * cálculo -- cualquier cambio de uno rompía el otro en silencio).
-     */
-    _getColumnsPerRow: function ($items) {
-      if (!$items || $items.length < 2) return 1;
-      var firstTop = $items.eq(0).position().top;
-      var count = 1;
-      for (var i = 1; i < $items.length; i++) {
-        if (Math.abs($items.eq(i).position().top - firstTop) < 1) {
-          count++;
-        } else {
-          break;
-        }
-      }
-      return count || 1;
-    },
-
     navigate: function (direction, $el) {
       var $closeButton = this.$closeButton;
       var $input = this.$input;
       var $tabs = this.$tabsContainer.find(".search-tab.focusable:not(.hidden)");
-      var $results = this.$resultsContainer.find(".result-item.focusable, .search-recent-chip.focusable, .search-recent-clear.focusable");
-      var totalResultsPerRow = this._getColumnsPerRow(this.$resultsContainer.find(".result-item.focusable"));
+      var $results = this.$resultsContainer.find(".result-item.focusable");
+      var $recentItems = this.$recentRow.find(".focusable");
 
       var $resultsContainer = this.$resultsContainer;
       var containerHeight = $resultsContainer.height();
-      var itemHeight = $results.first().outerHeight(true) || 0;
 
       if ($el.is($closeButton)) {
         if (direction === "down" && $input.length) {
+          Focus.to($input);
+        } else if (direction === "left" && $input.length) {
           Focus.to($input);
         }
         return true;
@@ -708,17 +710,52 @@ var Search = (function (Events) {
 
       if ($el.is($input)) {
         if (direction === "down") {
+          if ($recentItems.length) {
+            Focus.to($recentItems.first());
+          } else if ($tabs.length) {
+            Focus.to($tabs.first());
+          } else if ($results.length > 0) {
+            Focus.to($results.first());
+          }
+        } else if (direction === "right") {
+          // El botón "×" está a la derecha del input en la barra superior
+          // (ver .search-input-container en index.html) -- moverse a la
+          // derecha debe ir ahí, no saltar directo a los resultados (eso
+          // ya lo cubre "abajo").
+          if ($closeButton.length) Focus.to($closeButton);
+        } else if (direction === "up" || direction === "left") {
+          // Nada a la izquierda del input (el ícono de lupa no es focusable).
+          return true;
+        }
+        return true;
+      }
+
+      // Fila compacta de "búsquedas recientes" (chips + "Borrar"), pegada
+      // al buscador entre el input y los tabs -- ver _renderRecentRow().
+      // Es siempre una sola fila (no un grid con secciones), así que acá sí
+      // alcanza con índice plano, sin el cuidado geométrico que hace falta
+      // más abajo para la grilla de resultados.
+      if ($el.hasClass("search-recent-chip") || $el.hasClass("search-recent-clear")) {
+        var currentRecentIndex = $recentItems.index($el);
+        if (direction === "up") {
+          if ($input.length) Focus.to($input);
+          return true;
+        }
+        if (direction === "down") {
           if ($tabs.length) {
             Focus.to($tabs.first());
           } else if ($results.length > 0) {
             Focus.to($results.first());
           }
-        } else if (direction === "right" && $results.length > 0) {
-          Focus.to($results.first());
-        } else if (direction === "up") {
           return true;
-        } else if (direction === "left") {
-          if ($closeButton.length) Focus.to($closeButton);
+        }
+        if (direction === "left") {
+          if (currentRecentIndex > 0) Focus.to($recentItems.eq(currentRecentIndex - 1));
+          return true;
+        }
+        if (direction === "right") {
+          if (currentRecentIndex >= 0 && currentRecentIndex < $recentItems.length - 1) Focus.to($recentItems.eq(currentRecentIndex + 1));
+          return true;
         }
         return true;
       }
@@ -734,7 +771,11 @@ var Search = (function (Events) {
           return true;
         }
         if (direction === "up") {
-          if ($input.length) Focus.to($input);
+          if ($recentItems.length) {
+            Focus.to($recentItems.first());
+          } else if ($input.length) {
+            Focus.to($input);
+          }
           return true;
         }
         if (direction === "down") {
@@ -744,69 +785,138 @@ var Search = (function (Events) {
         return true;
       }
 
-      // Navegación dentro de RESULTADOS (incluye chips de "recientes")
-      if ($el.hasClass("result-item") || $el.hasClass("search-recent-chip") || $el.hasClass("search-recent-clear")) {
-        var currentResultIndex = $results.index($el);
-        if (currentResultIndex < 0) currentResultIndex = 0;
+      // Navegación dentro de RESULTADOS.
+      //
+      // IMPORTANTE: en el tab "Todos" los resultados están agrupados en
+      // secciones (Servicios / En pantalla / VOD / Catchup) separadas por
+      // un <div class="search-section-title"> con grid-column:1/-1 (ver
+      // search.css), que fuerza un salto de fila en el grid. Por eso no se
+      // puede navegar con aritmética de índice fijo -- en cuanto una
+      // sección no termina en un múltiplo exacto de columnas, el índice de
+      // la sección siguiente queda desalineado de la fila visual real.
+      //
+      // La navegación agrupa por posición real en el DOM usando
+      // offsetTop/offsetLeft nativos (NO jQuery .position()/.offset(), que
+      // usan getBoundingClientRect() y por lo tanto sí reflejan `transform:
+      // scale(1.05)` de .result-item:focus -- eso hacía que la card
+      // enfocada se midiera corrida respecto a sus vecinas sin foco).
+      //
+      // ROW_TOLERANCE: cards de la MISMA fila de CSS Grid no siempre
+      // reportan exactamente el mismo offsetTop -- se vieron diferencias de
+      // ~2px entre "compañeros de fila" (subpíxel de layout con alturas en
+      // em). Con una tolerancia de 1px, esos compañeros quedaban
+      // clasificados como "otra fila", así que ARRIBA/ABAJO en realidad
+      // terminaba moviendo el foco DENTRO de la misma fila (de ahí que
+      // "arriba" se sintiera como "derecha" y luego oscilara). El salto
+      // real entre filas es de cientos de píxeles, así que un margen de
+      // 10px es más que suficiente para absorber el jitter sin confundir
+      // dos filas reales entre sí.
+      if ($el.hasClass("result-item")) {
+        var ROW_TOLERANCE = 10;
+        var currentTop = $el[0].offsetTop;
+        var currentLeft = $el[0].offsetLeft;
 
-        if (direction === "up") {
-          var prevIndex = currentResultIndex - totalResultsPerRow;
-          if (prevIndex >= 0) {
-            Focus.to($results.eq(prevIndex));
-            var itemOffsetUp = $results.eq(prevIndex).position().top;
-            if (itemOffsetUp < 0 && itemHeight > 0) {
-              $resultsContainer.scrollTop($resultsContainer.scrollTop() - itemHeight);
-            }
-            if (prevIndex < totalResultsPerRow) {
-              setTimeout(function () { $resultsContainer.scrollTop(0); }, 10);
-            }
-          } else if ($tabs.length) {
-            Focus.to($tabs.first());
-          } else if ($input.length) {
-            Focus.to($input);
-          }
-          return true;
-        }
-
-        if (direction === "down") {
-          var nextIndex = currentResultIndex + totalResultsPerRow;
-          // Si no hay más elementos ya renderizados pero sí más datos
-          // pendientes para el tab activo, se agranda el lote y se
-          // recalcula (mismo criterio que gridOptimization() en epg.js:
-          // "agrandar y reintentar" en vez de quedar topeado).
-          if (nextIndex >= $results.length) {
-            if (this._growIfNeeded()) {
-              $results = this.$resultsContainer.find(".result-item.focusable, .search-recent-chip.focusable, .search-recent-clear.focusable");
-            }
-          }
-          if (nextIndex < $results.length) {
-            Focus.to($results.eq(nextIndex));
-            var itemOffsetDown = $results.eq(nextIndex).position().top;
-            if (itemHeight > 0 && itemOffsetDown + itemHeight > containerHeight) {
-              $resultsContainer.scrollTop($resultsContainer.scrollTop() + itemHeight);
+        if (direction === "up" || direction === "down") {
+          if (direction === "down") {
+            var lastTop = $results.length ? $results.last()[0].offsetTop : 0;
+            if (Math.abs(currentTop - lastTop) < ROW_TOLERANCE && this._growIfNeeded()) {
+              $results = this.$resultsContainer.find(".result-item.focusable");
             }
           }
-          return true;
-        }
 
-        if (direction === "left") {
-          if (currentResultIndex % totalResultsPerRow === 0) {
-            if ($tabs.length) {
-              Focus.to($tabs.first());
-            } else if ($input.length) {
-              Focus.to($input);
+          // Agrupar los offsetTop candidatos por clusters (en vez de valores
+          // exactos) para que el jitter de subpíxel no cree "filas" de más.
+          var rowTops = [];
+          $results.each(function () {
+            var t = this.offsetTop;
+            var isTarget = direction === "up" ? (t < currentTop - ROW_TOLERANCE) : (t > currentTop + ROW_TOLERANCE);
+            if (!isTarget) return;
+            for (var ci = 0; ci < rowTops.length; ci++) {
+              if (Math.abs(rowTops[ci] - t) < ROW_TOLERANCE) return;
             }
+            rowTops.push(t);
+          });
+
+          if (rowTops.length === 0) {
+            if (direction === "up") {
+              if ($tabs.length) {
+                Focus.to($tabs.first());
+              } else if ($input.length) {
+                Focus.to($input);
+              }
+            }
+            // "down" al final de todo: no hay nada más, no mover foco.
             return true;
           }
-          Focus.to($results.eq(currentResultIndex - 1));
+
+          var targetTop = direction === "up" ? Math.max.apply(null, rowTops) : Math.min.apply(null, rowTops);
+
+          var rowItems = [];
+          $results.each(function () {
+            if (Math.abs(this.offsetTop - targetTop) < ROW_TOLERANCE) {
+              rowItems.push({ el: $(this), left: this.offsetLeft });
+            }
+          });
+          rowItems.sort(function (a, b) {
+            return Math.abs(a.left - currentLeft) - Math.abs(b.left - currentLeft);
+          });
+
+          var $target = rowItems[0].el;
+          Focus.to($target);
+
+          var targetTopPos = $target[0].offsetTop;
+          var targetHeight = $target[0].offsetHeight || 0;
+          if (direction === "up") {
+            // Si la fila destino es la primera del todo (no hay ninguna
+            // fila más arriba de ella), llevar el scroll al tope exacto en
+            // vez de solo compensar lo que sobresale.
+            var isFirstRow = true;
+            $results.each(function () {
+              if (this.offsetTop < targetTopPos - ROW_TOLERANCE) isFirstRow = false;
+            });
+            if (isFirstRow) {
+              $resultsContainer.scrollTop(0);
+            } else if (targetTopPos < $resultsContainer.scrollTop()) {
+              $resultsContainer.scrollTop(targetTopPos);
+            }
+          } else if (targetHeight > 0 && (targetTopPos + targetHeight - $resultsContainer.scrollTop()) > containerHeight) {
+            $resultsContainer.scrollTop(targetTopPos + targetHeight - containerHeight);
+          }
           return true;
         }
 
-        if (direction === "right") {
-          if ((currentResultIndex + 1) % totalResultsPerRow === 0 || currentResultIndex === $results.length - 1) {
+        if (direction === "left" || direction === "right") {
+          var sameRow = [];
+          $results.each(function () {
+            if (Math.abs(this.offsetTop - currentTop) < ROW_TOLERANCE) {
+              sameRow.push({ el: $(this), left: this.offsetLeft });
+            }
+          });
+          sameRow.sort(function (a, b) { return a.left - b.left; });
+
+          var idxInRow = -1;
+          for (var k = 0; k < sameRow.length; k++) {
+            if (sameRow[k].el.is($el)) { idxInRow = k; break; }
+          }
+
+          if (direction === "left") {
+            if (idxInRow <= 0) {
+              if ($tabs.length) {
+                Focus.to($tabs.first());
+              } else if ($input.length) {
+                Focus.to($input);
+              }
+              return true;
+            }
+            Focus.to(sameRow[idxInRow - 1].el);
             return true;
           }
-          Focus.to($results.eq(currentResultIndex + 1));
+
+          // right: sin wrap a la siguiente fila (mismo comportamiento que antes)
+          if (idxInRow === -1 || idxInRow >= sameRow.length - 1) {
+            return true;
+          }
+          Focus.to(sameRow[idxInRow + 1].el);
           return true;
         }
         return true;

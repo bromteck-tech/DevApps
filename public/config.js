@@ -42,7 +42,7 @@ CONFIG = {
   //version: '2.0.1', // application version
   automaticActivation: true,
   developer: {
-    debug: true,
+    debug: false,
     active: true,
     console: null,
     pin: '99999' // show short info about application

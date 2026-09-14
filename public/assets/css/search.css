@@ -282,32 +282,43 @@
 }
 
 /* ============================================
-   BÚSQUEDAS RECIENTES -- se muestran en el estado vacío inicial (antes de
-   escribir nada), como en cualquier buscador de un app de streaming.
+   BÚSQUEDAS RECIENTES -- fila compacta pegada al buscador (entre el input y
+   los tabs, ver #searchRecent en index.html), visible sólo si hay algo en
+   el historial y todavía no se escribió una query. Antes era un bloque
+   grande y centrado dentro del panel de resultados, con un botón rojo
+   "Borrar historial" -- demasiado protagonismo para algo tan secundario.
+   Ahora es una sola línea discreta, del mismo tamaño que le corresponde.
    ============================================ */
-.search-recent {
-  grid-column: 1 / -1;
+.search-recent-row {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 0.6em;
-  justify-content: center;
-  padding: 1em;
+  gap: 0.5em;
+  width: 100%;
+  margin-bottom: 12px;
+  flex: 0 0 auto;
 }
 
-.search-recent-title {
-  grid-column: 1 / -1;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 0.9em;
-  text-align: center;
-  padding-top: 1em;
+/* .hidden (windows.css, una sola clase) se carga ANTES que este archivo, así
+   que sin esta regla compuesta el "display: flex" de arriba ganaría el
+   empate de especificidad y la fila nunca se ocultaría de verdad. Mismo
+   patrón que .search-tab.hidden más arriba en este mismo archivo. */
+.search-recent-row.hidden {
+  display: none;
+}
+
+.search-recent-label {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.8em;
+  margin-right: 0.2em;
 }
 
 .search-recent-chip {
-  padding: 0.5em 1em;
+  padding: 0.35em 0.9em;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 0.9em;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.85em;
   cursor: pointer;
   user-select: none;
 }
@@ -315,21 +326,31 @@
 .search-recent-chip:hover,
 .search-recent-chip:focus {
   background: rgba(0, 123, 255, 0.6);
+  color: #fff;
+}
+
+/* Empuja "Borrar" al extremo derecho de la fila. Se usa un spacer en vez de
+   "margin-left: auto" en .search-recent-clear porque la clase .focus global
+   (style.css) fuerza "margin: 2px" sobre CUALQUIER elemento enfocado --
+   pisaba el margin-left:auto y hacía que "Borrar" saltara de lugar justo al
+   enfocarlo con el control remoto. */
+.search-recent-spacer {
+  flex: 1;
 }
 
 .search-recent-clear {
-  padding: 0.5em 1em;
+  padding: 0.3em 0.7em;
   border-radius: 999px;
-  background: rgba(255, 76, 76, 0.25);
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 0.9em;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.8em;
   cursor: pointer;
   user-select: none;
 }
 
 .search-recent-clear:hover,
 .search-recent-clear:focus {
-  background: rgba(255, 76, 76, 0.6);
+  color: rgba(255, 255, 255, 0.9);
+  text-decoration: underline;
 }
 
 /* Ícono persistente de búsqueda en la cabecera de Home (ver index.html,
